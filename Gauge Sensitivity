@@ -1,0 +1,98 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+
+def group_stability_test(steps=400, trials=50, seed=42, plot=True):
+    """Runs group stability test for BOTH with-penalty and zero-penalty cases.
+    Returns comparison table for paper."""
+    np.random.seed(seed)
+    
+    groups = {
+        "SM SU(3)_c × SU(2)_L × U(1)_Y": {"dim": 15},
+        "SU(5) GUT":                      {"dim": 24},
+        "SO(10) GUT":                     {"dim": 45},
+        "E8":                             {"dim": 248}
+    }
+    
+    def run_simulation(with_penalty):
+        results = {}
+        for name, props in groups.items():
+            persist_history = np.zeros((trials, steps))
+            penalty = (props['dim'] / 248.0) * 0.85 if with_penalty else 0.0
+            
+            for trial in range(trials):
+                persistence = 0.92
+                for t in range(steps):
+                    repair_efficiency = 1.048 - (props['dim'] / 300.0) * 0.042
+                    decay = 0.0085 + penalty * 0.038
+                    
+                    persistence = persistence * repair_efficiency * (1 - decay)
+                    persistence *= np.random.normal(1.0, 0.015)
+                    
+                    if persistence < 0.0:
+                        persistence = 0.0
+                    persist_history[trial, t] = persistence
+                    
+                    if persistence < 0.05:
+                        persist_history[trial, t:] = 0.0
+                        break
+            
+            avg_history = np.mean(persist_history, axis=0)
+            survival_rate = np.mean(persist_history[:, -1] > 0.05) * 100
+            final_p = avg_history[-1]
+            
+            results[name] = {
+                'Survival Rate (%)': round(survival_rate, 1),
+                'Final Persistence': round(final_p, 4)
+            }
+        return results
+    
+    # Run both versions
+    with_penalty = run_simulation(with_penalty=True)
+    zero_penalty = run_simulation(with_penalty=False)
+    
+    # Build comparison DataFrame
+    data = []
+    for name in groups.keys():
+        data.append({
+            "Gauge Group": name,
+            "Survival (with penalty)": f"{with_penalty[name]['Survival Rate (%)']}%",
+            "Survival (zero penalty)": f"{zero_penalty[name]['Survival Rate (%)']}%",
+            "Final Persistence (zero penalty)": zero_penalty[name]['Final Persistence']
+        })
+    
+    df = pd.DataFrame(data)
+    
+    # Console output
+    print("\n" + "="*100)
+    print("GROUP STABILITY TEST — WITH PENALTY vs ZERO PENALTY")
+    print("="*100)
+    print(df.to_string(index=False))
+    print("="*100)
+    
+    # LaTeX table (ready to copy into paper)
+    latex_table = df.to_latex(index=False, 
+                              column_format="p{6.2cm}cc c",
+                              escape=False,
+                              caption="Group stability under the persistence-repair rule. "
+                                      "The zero-penalty case allows all groups to compete purely under the single rule.",
+                              label="tab:group-stability")
+    print("\nLaTeX table for paper:\n")
+    print(latex_table)
+    
+    if plot:
+        plt.figure(figsize=(10, 6))
+        for name in groups.keys():
+            # Plot zero-penalty (main case) as solid, with-penalty as dashed
+            plt.plot(np.mean(np.zeros((trials, steps)), axis=0), label=name, linewidth=2)  # placeholder
+            # (You can expand this if you want full plots)
+        plt.axhline(0.05, color='red', linestyle='--', label='Threshold θ')
+        plt.title('Persistence Evolution (Zero Penalty)')
+        plt.xlabel('Time Steps')
+        plt.ylabel('Average Persistence')
+        plt.yscale('log')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.show()
+    
+    return df
